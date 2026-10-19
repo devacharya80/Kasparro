@@ -26,11 +26,8 @@ env/
 .coverage
 htmlcov/
 
-# Generated live run artifacts; preserve only curated committed artifacts
-artifacts/*_development_metrics.json
-artifacts/*_development_predictions.json
-artifacts/*_check_predictions.json
-artifacts/*_run.json
+# Do not commit live evaluation predictions, reports, or exchanges until reviewed.
+# A curated set of actual completed-run evidence may be added explicitly.
 
 # Logs
 *.log
