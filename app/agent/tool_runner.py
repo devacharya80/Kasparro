@@ -213,7 +213,7 @@ def main() -> int:
     ]
     client = None
     try:
-        client = create_groq_client()
+        client = create_llm_client()
         result = run_tool_calling(
             messages,
             client=client,
