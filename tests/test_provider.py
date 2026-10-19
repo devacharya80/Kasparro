@@ -51,3 +51,30 @@ def test_client_can_be_created_without_network_request(
 
     assert client is not None
     client.close()
+
+
+def test_openai_provider_uses_configured_model(monkeypatch):
+    from app.agent.provider import get_model_name, get_provider_name
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_MODEL", "test-openai-model")
+    assert get_provider_name() == "openai"
+    assert get_model_name() == "test-openai-model"
+
+
+def test_openai_provider_rejects_missing_key(monkeypatch):
+    from app.agent.provider import get_openai_api_key
+
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        get_openai_api_key()
+
+
+def test_openai_client_can_be_created_without_network_request(monkeypatch):
+    from app.agent.provider import create_llm_client
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    client = create_llm_client()
+    assert client is not None
+    client.close()
