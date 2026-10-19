@@ -166,7 +166,7 @@ Zero denominators score zero when the split contains gold claims. The check spli
 
 ## GitHub Actions
 
-The push workflow runs the deterministic pytest suite. A separate **manual** workflow can run the four live evaluations using an `OPENAI_API_KEY` repository secret and upload the resulting artifacts. It is deliberately not run on each push, to avoid unintentional provider charges. No deployment workflow is required.
+The push workflow runs the deterministic pytest suite. To produce the four required live runs, open **Actions → Live assessment evaluation → Run workflow** on `main`, choose `openai` or `groq`, and use the matching `OPENAI_API_KEY` or `GROQ_API_KEY` repository secret. The manual workflow uploads the actual outputs even when one or more answers fail, and reports failed runs honestly. It is not triggered on each push, to avoid unintentional provider charges. No deployment workflow is required.
 
 ## Limitations and evidence status
 
