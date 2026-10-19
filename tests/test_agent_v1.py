@@ -28,6 +28,7 @@ def mock_dependencies(monkeypatch):
     )
 
     def fake_runner(messages, **kwargs):
+        assert messages[0]["content"] == agent_v1.SYSTEM_PROMPT
         return SimpleNamespace(
             final_text=json.dumps(
                 {
