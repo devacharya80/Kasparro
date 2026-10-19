@@ -2,7 +2,6 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-
 client = TestClient(app)
 
 
@@ -12,15 +11,30 @@ def test_classify_rejects_missing_fields():
 
 
 def test_classify_rejects_unsupported_agent_version():
-    response = client.post(
-        "/classify",
-        json={
-            "answer_id": "A01",
-            "brand_id": "cleartrail",
-            "answer_text": "The speaker weighs 1 kg.",
-            "agent_version": "v3",
-        },
-    )
+    response = client.post("/classify", json={
+        "answer_id": "A01", "brand_id": "cleartrail",
+        "question": "How heavy is it?",
+        "answer_text": "The speaker weighs 1 kg.",
+        "agent_version": "v3",
+    })
+    assert response.status_code == 422
+
+
+def test_classify_rejects_unknown_fields():
+    response = client.post("/classify", json={
+        "answer_id": "A01", "brand_id": "cleartrail",
+        "question": "How heavy is it?",
+        "answer_text": "The speaker weighs 1 kg.",
+        "gold_claims": [],
+    })
+    assert response.status_code == 422
+
+
+def test_classify_requires_question_context():
+    response = client.post("/classify", json={
+        "answer_id": "A01", "brand_id": "cleartrail",
+        "answer_text": "The speaker weighs 1 kg.",
+    })
     assert response.status_code == 422
 
 
