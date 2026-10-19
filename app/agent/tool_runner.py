@@ -5,10 +5,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from groq import APIStatusError, RateLimitError
-
 from app.agent.catalogue import execute_tool
-from app.agent.provider import REQUEST_TIMEOUT_SECONDS, create_groq_client, get_groq_model
+from app.agent.provider import REQUEST_TIMEOUT_SECONDS, create_llm_client, get_model_name
 from app.agent.tool_schema import build_brand_facts_tool_schema
 
 
@@ -76,12 +74,15 @@ def _create_completion_with_retry(
                 temperature=0,
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-        except APIStatusError as error:
-            if error.status_code == 413:
+        except Exception as error:
+            status_code = getattr(error, "status_code", None)
+            error_name = type(error).__name__.lower()
+            if status_code == 413:
                 raise ToolCallingError(
                     "Provider rejected the request with HTTP 413; the identical request was not retried."
                 ) from error
-            if not isinstance(error, RateLimitError) or attempt >= MAX_RATE_LIMIT_RETRIES:
+            is_rate_limit = status_code == 429 or "ratelimit" in error_name
+            if not is_rate_limit or attempt >= MAX_RATE_LIMIT_RETRIES:
                 raise
             wait_seconds = INITIAL_RETRY_WAIT_SECONDS * (attempt + 1)
             print(
@@ -108,7 +109,7 @@ def run_tool_calling(
     conversation = [dict(message) for message in messages]
     owns_client = client is None
     if client is None:
-        client = create_groq_client()
+        client = create_llm_client()
 
     try:
         tool_schema = build_brand_facts_tool_schema()
@@ -118,7 +119,7 @@ def run_tool_calling(
         for turn_number in range(1, max_turns + 1):
             response = _create_completion_with_retry(
                 client,
-                model=get_groq_model(),
+                model=get_model_name(),
                 messages=conversation,
                 tools=tool_schema,
                 tool_choice=tool_choice if turn_number == 1 else "auto",
@@ -219,7 +220,7 @@ def main() -> int:
             max_turns=MAX_MODEL_TURNS,
             tool_choice={"type": "function", "function": {"name": TOOL_NAME}},
         )
-        print(f"Model: {get_groq_model()}")
+        print(f"Model: {get_model_name()}")
         print(f"Model turns: {result.model_turns}")
         print(f"Tool calls executed: {len(result.tool_calls)}")
         for call in result.tool_calls:
