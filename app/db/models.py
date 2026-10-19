@@ -4,9 +4,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+    DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid, func
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -18,7 +17,7 @@ class EvaluationRun(Base):
     __tablename__ = "evaluation_runs"
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     dataset_split: Mapped[str] = mapped_column(String(32), nullable=False)
     agent_version: Mapped[str] = mapped_column(String(8), nullable=False)
