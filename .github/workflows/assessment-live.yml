@@ -1,0 +1,81 @@
+name: Assessment live evaluation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-evaluation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      LLM_PROVIDER: openai
+      OPENAI_MODEL: gpt-4.1-mini
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GIT_COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Require configured provider key
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::Configure OPENAI_API_KEY under repository Actions secrets before starting live runs."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Check datasets
+        run: python -m app.evaluation.dataset_inspector
+
+      - name: Run v1 development
+        id: v1-development
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v1 --split development
+
+      - name: Run v2 development
+        id: v2-development
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v2 --split development
+
+      - name: Run v1 final checks
+        id: v1-check
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v1 --split check
+
+      - name: Run v2 final checks
+        id: v2-check
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v2 --split check
+
+      - name: Upload actual run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasparro-assessment-live-evidence
+          path: |
+            artifacts/v1_development_*.json
+            artifacts/v2_development_*.json
+            artifacts/v1_check_*.json
+            artifacts/v2_check_*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail if any answer in a scheduled run failed
+        if: always()
+        shell: bash
+        run: |
+          failed=0
+          for status in "${{ steps.v1-development.outcome }}" "${{ steps.v2-development.outcome }}" "${{ steps.v1-check.outcome }}" "${{ steps.v2-check.outcome }}"; do
+            if [ "$status" != "success" ]; then failed=1; fi
+          done
+          exit "$failed"
