@@ -16,10 +16,21 @@ env/
 .env.*
 !.env.example
 
-# Testing and coverage
+# Editor / temporary backups
+*.bak
+*.tmp
+*~
+
+# Test and coverage artifacts
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Generated live run artifacts; preserve only curated committed artifacts
+artifacts/*_development_metrics.json
+artifacts/*_development_predictions.json
+artifacts/*_check_predictions.json
+artifacts/*_run.json
 
 # Logs
 *.log
