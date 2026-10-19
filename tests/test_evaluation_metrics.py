@@ -83,3 +83,11 @@ def test_span_matcher_does_not_truncate_invalid_float_offsets():
     ])
     assert result["matches"] == []
     assert len(result["unmatched_predictions"]) == 1
+
+
+
+def test_empty_scheduled_split_returns_null_quality_metrics():
+    result = evaluate_claims([], [], scheduled_answer_ids=[])
+    assert result["extraction"] == {"precision": None, "recall": None, "f1": None}
+    assert result["joint"] == {"precision": None, "recall": None, "f1": None}
+    assert result["claim_coverage"] is None
