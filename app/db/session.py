@@ -23,7 +23,20 @@ def _database_url() -> str:
     return url
 
 
-engine = create_engine(_database_url(), pool_pre_ping=True)
+def _create_engine():
+    url = _database_url()
+    options = {"pool_pre_ping": True}
+    # In-memory SQLite keeps API/service contract tests isolated and avoids
+    # requiring PostgreSQL just to import the application.
+    if url.startswith("sqlite"):
+        options["connect_args"] = {"check_same_thread": False}
+        if url in {"sqlite://", "sqlite:///:memory:"}:
+            from sqlalchemy.pool import StaticPool
+            options["poolclass"] = StaticPool
+    return create_engine(url, **options)
+
+
+engine = _create_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
