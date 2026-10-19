@@ -14,7 +14,7 @@ from typing import Any
 
 from app.agent.agent_v1 import classify_answer as classify_v1
 from app.agent.agent_v2 import classify_answer as classify_v2
-from app.agent.provider import REQUEST_TIMEOUT_SECONDS, get_groq_model
+from app.agent.provider import REQUEST_TIMEOUT_SECONDS, get_model_name, get_provider_name
 from app.catalogue_version import DATASET_VERSION, EVALUATOR_VERSION, FACT_VERSION
 from app.evaluation.loader import load_answers, load_gold_claims
 from app.evaluation.metrics import evaluate_claims
@@ -150,8 +150,8 @@ def main() -> int:
         "run_id": run_id,
         "agent_version": args.agent,
         "split": args.split,
-        "provider": os.getenv("LLM_PROVIDER", "groq"),
-        "model": get_groq_model(),
+        "provider": get_provider_name(),
+        "model": get_model_name(),
         "dataset_version": DATASET_VERSION,
         "fact_version": FACT_VERSION,
         "evaluator_version": EVALUATOR_VERSION,
