@@ -130,7 +130,7 @@ jobs:
             artifacts/*_exchanges.json
             artifacts/*_run.json
             artifacts/live-evaluation-summary.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Fail if any full run reported answer errors
