@@ -49,10 +49,10 @@ class AnswerResult(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("evaluation_runs.id", ondelete="CASCADE"),
+        Uuid(as_uuid=True), ForeignKey("evaluation_runs.id", ondelete="CASCADE"),
         nullable=False, index=True
     )
     answer_id: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -83,10 +83,10 @@ class ClaimResult(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     answer_result_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("answer_results.id", ondelete="CASCADE"),
+        Uuid(as_uuid=True), ForeignKey("answer_results.id", ondelete="CASCADE"),
         nullable=False, index=True
     )
     claim_id: Mapped[str] = mapped_column(String(80), nullable=False)
