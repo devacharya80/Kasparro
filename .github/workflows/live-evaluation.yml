@@ -1,0 +1,146 @@
+name: Live assessment evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Provider to use for the four required live runs"
+        required: true
+        type: choice
+        options:
+          - openai
+          - groq
+        default: openai
+      openai_model:
+        description: "OpenAI model (used when provider=openai)"
+        required: false
+        type: string
+        default: gpt-4.1-mini
+      groq_model:
+        description: "Groq model (used when provider=groq)"
+        required: false
+        type: string
+        default: openai/gpt-oss-120b
+
+permissions:
+  contents: read
+
+jobs:
+  four-live-runs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      LLM_PROVIDER: ${{ inputs.provider }}
+      OPENAI_MODEL: ${{ inputs.openai_model }}
+      GROQ_MODEL: ${{ inputs.groq_model }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify selected provider secret exists
+        shell: bash
+        run: |
+          if [[ "$LLM_PROVIDER" == "openai" && -z "$OPENAI_API_KEY" ]]; then
+            echo "::error::Add OPENAI_API_KEY in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          if [[ "$LLM_PROVIDER" == "groq" && -z "$GROQ_API_KEY" ]]; then
+            echo "::error::Add GROQ_API_KEY in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Verify exact supplied datasets
+        run: python -m app.evaluation.dataset_inspector
+
+      - name: Run v1 on development
+        id: v1-development
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v1 --split development
+
+      - name: Run v2 on development
+        id: v2-development
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v2 --split development
+
+      - name: Run v1 on final checks
+        id: v1-check
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v1 --split check
+
+      - name: Run v2 on final checks
+        id: v2-check
+        continue-on-error: true
+        run: python -m app.evaluation.run_evaluation --agent v2 --split check
+
+      - name: Validate four reports and preserve status summary
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          expected = [
+              ("v1", "development"),
+              ("v2", "development"),
+              ("v1", "check"),
+              ("v2", "check"),
+          ]
+          summary = {}
+          for agent, split in expected:
+              path = Path("artifacts") / f"{agent}_{split}_run.json"
+              if not path.is_file():
+                  summary[f"{agent}_{split}"] = {"report_present": False}
+                  continue
+              report = json.loads(path.read_text(encoding="utf-8"))
+              summary[f"{agent}_{split}"] = {
+                  "report_present": True,
+                  "scheduled_answers": report.get("scheduled_answers"),
+                  "successful_answers": report.get("successful_answers"),
+                  "failed_answers": report.get("failed_answers"),
+                  "metrics": report.get("metrics") if split == "development" else None,
+              }
+          Path("artifacts/live-evaluation-summary.json").write_text(
+              json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(summary, indent=2))
+          PY
+
+      - name: Upload actual run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasparro-live-assessment-evidence
+          path: |
+            artifacts/*_predictions.json
+            artifacts/*_outcomes.json
+            artifacts/*_errors.json
+            artifacts/*_exchanges.json
+            artifacts/*_run.json
+            artifacts/live-evaluation-summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail if any full run reported answer errors
+        if: always()
+        shell: bash
+        run: |
+          failed=0
+          for status in ${{ steps.v1-development.outcome }} ${{ steps.v2-development.outcome }} ${{ steps.v1-check.outcome }} ${{ steps.v2-check.outcome }}; do
+            if [[ "$status" != "success" ]]; then
+              failed=1
+            fi
+          done
+          exit "$failed"
