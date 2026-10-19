@@ -182,6 +182,7 @@ def main() -> int:
         "outcomes_file": f"artifacts/{args.agent}_{args.split}_outcomes.json",
         "errors_file": f"artifacts/{args.agent}_{args.split}_errors.json",
         "exchanges_file": f"artifacts/{args.agent}_{args.split}_exchanges.json",
+        "sanitised_exchanges": exchanges,
     }
 
     if args.split == "development":
