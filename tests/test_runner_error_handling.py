@@ -6,10 +6,6 @@ from groq import APIStatusError
 from app.agent.tool_runner import ToolCallingError, _create_completion_with_retry
 
 
-class FakeResponse:
-    pass
-
-
 class FakeClient:
     def __init__(self, error):
         self.error = error
