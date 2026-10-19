@@ -13,11 +13,21 @@ def _ratio(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4) if denominator else 0.0
 
 
-def _prf(tp: int, predicted: int, gold: int) -> dict[str, float]:
+def _f1(numerator: int, denominator: int, *, empty_split: bool) -> float | None:
+    if denominator:
+        return round(numerator / denominator, 4)
+    return None if empty_split else 0.0
+
+
+def _prf(
+    tp: int, predicted: int, gold: int, *, empty_split: bool
+) -> dict[str, float | None]:
     """Assessment-defined precision, recall and F1 using global counts."""
+    if empty_split:
+        return {"precision": None, "recall": None, "f1": None}
     precision = _ratio(tp, predicted)
     recall = _ratio(tp, gold)
-    f1 = _ratio(2 * tp, predicted + gold)
+    f1 = _f1(2 * tp, predicted + gold, empty_split=False)
     return {"precision": precision, "recall": recall, "f1": f1}
 
 
@@ -93,8 +103,8 @@ def evaluate_claims(
         "predicted_claims": p,
         "exact_span_matches": m,
         "joint_correct_claims": c,
-        "extraction": _prf(m, p, g),
-        "joint": _prf(c, p, g),
+        "extraction": _prf(m, p, g, empty_split=(scheduled_answer_ids is not None and len(scheduled_answer_ids) == 0)),
+        "joint": _prf(c, p, g, empty_split=(scheduled_answer_ids is not None and len(scheduled_answer_ids) == 0)),
         "claim_coverage": _ratio(c, g),
         "missed_gold_claim_ids": missed_gold_ids,
         "unmatched_prediction_ids": unmatched_prediction_ids,
