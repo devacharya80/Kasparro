@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.agent.agent_v1 import AgentOutputError, classify_answer as classify_v1
 from app.agent.agent_v2 import classify_answer as classify_v2
 from app.agent.catalogue import UnknownBrandError
-from app.agent.provider import REQUEST_TIMEOUT_SECONDS, get_groq_model
+from app.agent.provider import REQUEST_TIMEOUT_SECONDS, get_model_name, get_provider_name
 from app.agent.tool_runner import InvalidToolArgumentsError, ToolCallingError
 from app.catalogue_version import DATASET_VERSION, EVALUATOR_VERSION, FACT_VERSION
 from app.db.models import AnswerResult, Base, ClaimResult, EvaluationRun
@@ -102,7 +102,7 @@ def _source_revision() -> str | None:
 
 
 def _provider_details() -> tuple[str, str]:
-    return "groq", get_groq_model()
+    return get_provider_name(), get_model_name()
 
 
 def _classify(
@@ -135,13 +135,16 @@ def _sanitised_error(error: Exception) -> str:
 
 
 def _http_model_error(error: Exception) -> HTTPException:
-    from groq import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError
-
     if isinstance(error, UnknownBrandError):
         return HTTPException(status_code=404, detail="Unknown primary brand.")
-    if isinstance(error, (APITimeoutError, TimeoutError)) or "timeout" in type(error).__name__.lower():
+    error_name = type(error).__name__.lower()
+    if isinstance(error, TimeoutError) or "timeout" in error_name:
         return HTTPException(status_code=504, detail="LLM provider timed out.")
-    if isinstance(error, (APIConnectionError, APIStatusError, RateLimitError)):
+    status_code = getattr(error, "status_code", None)
+    if status_code is not None or any(
+        token in error_name
+        for token in ("connectionerror", "ratelimit", "apierror", "statuserror")
+    ):
         return HTTPException(status_code=502, detail="LLM provider request failed.")
     return HTTPException(
         status_code=502,
