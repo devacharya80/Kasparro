@@ -1,412 +1,169 @@
-# Kasparro FSE Intern Pathway Assessment
+# Kasparro — FSE Intern Pathway Assessment
 
-An AI agent that extracts factual claims from long AI-generated answers about speaker products and classifies them as **Supported, Contradicted, or Unknown** using a structured product catalogue.
+An evidence-grounded agent that extracts factual claims from AI-generated speaker-product answers and classifies each claim as `supported`, `contradicted`, or `unknown` using the supplied catalogue.
 
-The project focuses on LLM tool calling, factual claim extraction, evidence-based classification, automated evaluation, and performance comparison between two agent versions.
+## What is implemented
 
-## 🚀 Project Overview
+- Read-only product catalogue tool calling (`get_brand_facts(brand_id)`).
+- Strict claim quote/offset/label/fact-reference validation.
+- v1 baseline and a separately selectable v2 prompt refinement focused on compound claims and qualifiers.
+- Exact-span extraction and joint evaluation metrics.
+- FastAPI endpoints for single-answer classification and stored evaluation runs.
+- PostgreSQL-backed run, answer-result, and claim-result records.
+- Checkpointed CLI runs for development and final-check splits.
+- Tests for the validation, catalogue, evaluation, provider-configuration, and API contracts.
 
-AI-generated answers can contain incorrect product specifications, outdated prices, unsupported claims, and misleading comparisons.
+The v2 prompt refinement is a hypothesis, not a claim of measured improvement. Compare v1 and v2 on the same development dataset and report the resulting metrics before drawing conclusions.
 
-This project aims to identify these issues by building an AI agent that:
+## Classification rules
 
-- Extracts factual sentences from long AI-generated answers.
-- Retrieves product facts using LLM tool calling.
-- Classifies each claim using the supplied product catalogue.
-- Validates claim boundaries, evidence references, and structured outputs.
-- Measures extraction and classification performance.
-- Compares a baseline agent (v1) with an improved candidate (v2).
-- Exposes functionality through a FastAPI service.
-- Stores evaluation runs and predictions in PostgreSQL.
-
-## 🎯 Classification Categories
-
-Each extracted factual claim receives one of three labels:
-
-| Label | Description |
+| Label | Meaning |
 |---|---|
-| `supported` | The supplied catalogue establishes the claim. |
-| `contradicted` | The supplied catalogue explicitly refutes the claim. |
-| `unknown` | The supplied catalogue establishes neither truth nor falsity. |
+| `supported` | Catalogue evidence supports every material part of the claim. |
+| `contradicted` | Catalogue evidence explicitly conflicts with a material part. |
+| `unknown` | The catalogue does not establish truth or falsity. Missing evidence alone is not contradiction. |
 
-**Important:** Missing information is not automatically evidence that a claim is false. Classification must rely on the supplied catalogue and the relevant product, date, units, and conditions.
+A claim must be evaluated as a whole, including dates, units, product model, market, warranty conditions, comparison direction, and other material qualifiers.
 
-## 🛠️ Tech Stack
+## Dataset and inference separation
 
-- **Language:** Python
-- **AI:** OpenAI, Anthropic, or Gemini API
-- **Backend:** FastAPI
-- **Database:** PostgreSQL
-- **Data Processing:** Pandas / Python CSV
-- **Testing:** Pytest
-- **Evaluation:** Custom evaluation harness
-- **Version Control:** Git and GitHub
+- `data/answers.csv`: 50 answers; development A01–A40 and check A41–A50.
+- `data/brand_facts.csv`: catalogue source of truth.
+- `data/development_gold.csv`: gold labels for development evaluation only.
 
-## 📂 Dataset
+The inference agents receive the answer text and brand ID, then retrieve facts via the catalogue tool. They are not passed gold claims. The check split is intentionally not scored by this implementation because candidate-accessible gold labels are unavailable.
 
-The assessment provides three CSV files:
+## Repository layout
 
-| File | Purpose |
-|---|---|
-| `answers.csv` | Contains 50 AI-generated answers to analyse. |
-| `brand_facts.csv` | Contains the product catalogue used as the factual source of truth. |
-| `development_gold.csv` | Contains labelled factual claims for evaluating predictions on the development dataset. |
+```text
+app/
+  agent/       v1, v2, catalogue, provider, tool schema/runner, validator
+  db/          SQLAlchemy models and session dependency
+  evaluation/  data loading, span matching, metrics, dataset inspection, CLI
+  main.py      FastAPI app
+data/          assessment CSVs
+artifacts/     prediction checkpoints and run reports
+tests/         deterministic unit/API tests
+```
 
-### Dataset Splits
+## Setup
 
-- **Development:** A01–A40, used for baseline evaluation and improvement.
-- **Final Checks:** A41–A50, used to generate predictions for reviewer evaluation.
+Requirements: Python 3.11+, PostgreSQL, Git, and a valid Groq API key for live agent runs.
 
-The development gold labels are used exclusively by the evaluation harness and must not be provided to the agent during inference.
+### 1. Clone and create a virtual environment
 
-## 🧠 AI Agent Workflow
+```powershell
+git clone https://github.com/devacharya80/Kasparro.git
+cd Kasparro
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
 
-The agent follows this workflow:
+### 2. Configure environment
 
-1. Receive an answer and its associated metadata.
-2. Analyse the complete AI-generated answer.
-3. Extract complete factual claim sentences.
-4. Request product information through the `get_brand_facts(brand_id)` tool.
-5. Compare the extracted claims against the relevant catalogue facts.
-6. Classify each claim as supported, contradicted, or unknown.
-7. Validate the claim text, character offsets, labels, and fact IDs.
-8. Return structured predictions.
-9. Save the results and evaluate performance where reference labels are available.
+Copy `.env.example` to `.env`, then set the database URL and your own provider key. Never commit `.env` or credentials.
 
-### Example Output
+```env
+DATABASE_URL=postgresql+psycopg://USER:PASSWORD@localhost:5432/kasparro_assessment
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_API_KEY=your_real_key_here
+```
+
+The provider implementation currently uses Groq. The assessment brief mentions other providers, but this repository does not currently implement OpenAI, Anthropic, or Gemini adapters.
+
+### 3. Run tests and inspect the dataset
+
+```powershell
+python -m pytest -q
+python -m app.evaluation.dataset_inspector
+```
+
+### 4. Start the API
+
+Ensure PostgreSQL is running and `DATABASE_URL` points to an existing database. Tables are created on application startup.
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+Interactive API documentation is available at `/docs`.
+
+## API
+
+### `POST /classify`
+
+Request:
 
 ```json
 {
   "answer_id": "A01",
-  "claims": [
-    {
-      "claim_id": "A01:0:30",
-      "start_char": 0,
-      "end_char": 30,
-      "quote": "The speaker weighs 800 grams.",
-      "label": "supported",
-      "fact_ids": ["F001"],
-      "reason": "The catalogue confirms the speaker's weight."
-    }
-  ]
+  "brand_id": "cleartrail",
+  "answer_text": "The speaker weighs 800 grams.",
+  "agent_version": "v1"
 }
 ```
 
-*Note: This is an illustrative example, not an actual prediction from the supplied dataset.*
+`agent_version` accepts `v1` or `v2`. Successful responses include the exact claim quote, character offsets, label, supporting/contradicting catalogue fact IDs, and reason. Invalid request bodies return `422`; provider or invalid model-output failures return `502`; provider timeouts return `504`.
 
-### Claim Validation
+### `POST /evaluation-runs`
 
-Each prediction includes:
+Request:
 
-- `claim_id`: Identifier derived from the answer ID and character offsets.
-- `start_char`: Inclusive starting position.
-- `end_char`: Exclusive ending position.
-- `quote`: Exact sentence extracted from the original answer.
-- `label`: Classification result.
-- `fact_ids`: Relevant catalogue fact identifiers.
-- `reason`: Brief explanation of the classification.
-
-The system validates that each quote matches the original answer exactly, offsets are valid, claims do not overlap, and referenced fact IDs exist.
-
-## 📊 Evaluation Framework
-
-A custom evaluation harness compares agent predictions against the development gold labels.
-
-### Extraction Metrics
-
-- **Precision:** Proportion of predicted claims that match gold claim spans.
-- **Recall:** Proportion of gold claims that the agent successfully extracts.
-- **F1 Score:** Harmonic mean of extraction precision and recall.
-
-### Joint Metrics
-
-Joint metrics require both an exact claim-span match and the correct classification label.
-
-The primary comparison metric is **Joint F1**.
-
-The evaluation also reports:
-
-- Missed gold claims.
-- Extra predictions.
-- Matched claims with incorrect labels.
-- Answer-level errors.
-- Extraction and joint precision, recall, and F1.
-
-Exact span matching is used to prevent partial sentences, merged sentences, or approximate matches from receiving credit.
-
-## 🔄 Baseline vs. Improved Agent
-
-The project follows a controlled improvement process.
-
-### Version 1 — Baseline
-
-The initial agent establishes baseline extraction and classification performance.
-
-### Version 2 — Improved Candidate
-
-The baseline's errors are analysed, and one targeted change is introduced to address a specific failure pattern.
-
-Both versions are evaluated on the same development dataset using identical scoring rules.
-
-The improvement analysis documents:
-
-- The observed failure.
-- The targeted change.
-- The measured impact.
-- Any regressions or lack of improvement.
-- Remaining limitations.
-
-No improvement is assumed in advance; results are reported from actual evaluation runs.
-
-## ⚡ FastAPI Endpoints
-
-The assessment specifies three endpoints.
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `POST` | `/classify` | Classify a single answer using the selected agent version. |
-| `POST` | `/evaluation-runs` | Execute an evaluation on a predefined dataset split. |
-| `GET` | `/evaluation-runs/{id}` | Retrieve saved evaluation results. |
-
-### Expected Error Handling
-
-- `200` — Successful classification.
-- `201` — Evaluation run created.
-- `404` — Unknown primary brand or missing evaluation run.
-- `422` — Invalid request or invalid UUID.
-- `502` — Provider failure or invalid model output.
-- `504` — Provider timeout.
-
-The API must validate requests and preserve answer-level failures instead of silently discarding them.
-
-## 🗄️ PostgreSQL Persistence
-
-The database stores evaluation metadata and prediction records.
-
-### Core Records
-
-**Runs**
-- Dataset split.
-- Agent version.
-- Provider and model settings.
-- Dataset and evaluator versions.
-- Processing status.
-- Available evaluation metrics.
-- Timestamp and source revision, where available.
-
-**Answer Results**
-- Answer ID.
-- Processing status.
-- Sanitised error details.
-- Latency.
-- Trace reference, where available.
-
-**Claim Results**
-- Claim offsets and exact quote.
-- Classification label.
-- Catalogue fact IDs.
-- Explanation.
-- Optional development evaluation match.
-
-Database constraints and parameterised SQL are used to maintain data integrity.
-
-## 🧪 Testing
-
-The test suite should cover:
-
-- CSV parsing and preservation of original answer text.
-- Valid and invalid claim offsets.
-- Quote mismatches and overlapping claims.
-- Duplicate prediction IDs.
-- Unsupported classification labels.
-- Invalid catalogue fact IDs.
-- Tool-calling validation.
-- Provider failures and timeouts.
-- Evaluation metric calculations.
-- Missed claims and extra predictions.
-- API validation and error responses.
-- Database persistence and retrieval.
-- Prevention of development gold-label leakage into inference.
-
-A fake provider is used for controlled failure tests, while the required evaluation runs use a live supported LLM API.
-
-## 📈 Evaluation Results
-
-Populate this table with actual results after executing the evaluation harness.
-
-| Metric | v1 Development | v2 Development |
-|---|---:|---:|
-| Extraction Precision | TBD | TBD |
-| Extraction Recall | TBD | TBD |
-| Extraction F1 | TBD | TBD |
-| Joint Precision | TBD | TBD |
-| Joint Recall | TBD | TBD |
-| Joint F1 | TBD | TBD |
-| Missed Claims | TBD | TBD |
-| Extra Predictions | TBD | TBD |
-| Wrong Labels | TBD | TBD |
-| Answer-Level Errors | TBD | TBD |
-
-### Required Evaluation Runs
-
-The project must preserve four live-run artifacts:
-
-1. v1 — Development dataset.
-2. v2 — Development dataset.
-3. v1 — Final-check dataset.
-4. v2 — Final-check dataset.
-
-Final-check predictions are saved without quality scores because the private reference labels are unavailable to the candidate.
-
-## ⚙️ Installation and Setup
-
-### Prerequisites
-
-- Python 3.11 or a compatible version supported by the implementation.
-- PostgreSQL.
-- An API key for the selected LLM provider.
-- Git.
-
-### Clone the Repository
-
-```bash
-git clone <YOUR_REPOSITORY_URL>
-cd <YOUR_REPOSITORY_DIRECTORY>
+```json
+{
+  "split": "development",
+  "agent_version": "v1"
+}
 ```
 
-### Create a Virtual Environment
+Allowed splits are `development` and `check`. The endpoint runs the selected agent, stores run/answer/claim records, and returns a run ID. Development runs include exact-span and joint metrics. Check runs store predictions but do not calculate scores.
 
-```bash
-python -m venv .venv
-```
+### `GET /evaluation-runs/{id}`
 
-Activate it on Windows:
+Returns run metadata, metrics when available, each answer's status, sanitised error information, latency, and prediction. A malformed UUID returns `422`; an unknown valid UUID returns `404`.
+
+## Evaluation CLI
+
+Run one configuration at a time:
 
 ```powershell
-.venv\Scripts\Activate.ps1
+# v1 and v2 on development (metrics use development gold)
+python -m app.evaluation.run_evaluation --agent v1 --split development
+python -m app.evaluation.run_evaluation --agent v2 --split development
+
+# final checks (predictions only, no private-label scoring)
+python -m app.evaluation.run_evaluation --agent v1 --split check
+python -m app.evaluation.run_evaluation --agent v2 --split check
 ```
 
-Activate it on macOS or Linux:
+For a short smoke run, add `--limit 1`. Output predictions are checkpointed in `artifacts/{agent}_{split}_predictions.json`; a run summary is saved to `artifacts/{agent}_{split}_run.json`. Re-running starts a fresh CLI report and overwrites those named output files; preserve any report you want to compare before rerunning.
 
-```bash
-source .venv/bin/activate
-```
+Live runs need a working provider key and sufficient rate limits. Provider failures are recorded per answer by the API and CLI; a CLI process exits with status 2 if any answer fails. No evaluation metric in this README is asserted without a completed run.
 
-### Install Dependencies
+## Persistence
 
-```bash
-pip install -r requirements.txt
-```
+SQLAlchemy models store:
+- Evaluation split, agent/provider/model settings, dataset/evaluator versions, source revision, status, metrics, timestamps, and run-level failure summary.
+- Per-answer status, latency, prediction JSON, and sanitised error summary.
+- Individual claim spans, exact quotes, labels, fact IDs, and explanations.
 
-### Configure Environment Variables
+## Current limitations
 
-Create a `.env` file using `.env.example` as a template.
+- Groq is the only implemented LLM adapter.
+- The targeted v2 prompt needs a completed side-by-side development evaluation before its benefit can be claimed.
+- The final-check split is not scored; the reviewer must assess it.
+- The API requires a reachable PostgreSQL database for persistence endpoints.
+- No private/reference labels are used to score check-split predictions.
 
-Example configuration:
+## Security
 
-```env
-DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/kasparro_assessment
-LLM_PROVIDER=<your-provider>
-LLM_MODEL=<your-model>
-LLM_API_KEY=<your-api-key>
-```
+- Keep API keys and database credentials in local environment variables.
+- Do not commit `.env`.
+- Treat answer content as untrusted data.
+- Only the explicit read-only catalogue tool may be invoked; arbitrary model-generated code is never executed.
+- Check split predictions are not scored against development gold labels.
 
-Adjust the variable names to match the implementation.
+## Author
 
-**Never commit API keys, credentials, or the `.env` file to GitHub.**
-
-### Run the API
-
-Once the application is implemented, the service can be started using the appropriate module path.
-
-Example:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-### Run Tests
-
-```bash
-pytest
-```
-
-Update these commands if the actual repository uses a different structure. Verify all commands before describing them as tested.
-
-## 📁 Suggested Project Structure
-
-```text
-kasparro-assessment/
-├── app/
-│   ├── agent/
-│   │   ├── agent_v1.py
-│   │   ├── agent_v2.py
-│   │   ├── prompts.py
-│   │   ├── tools.py
-│   │   └── validator.py
-│   ├── evaluation/
-│   │   ├── loader.py
-│   │   ├── matcher.py
-│   │   ├── metrics.py
-│   │   └── runner.py
-│   ├── db/
-│   │   ├── models.py
-│   │   └── repository.py
-│   ├── main.py
-│   └── schemas.py
-├── data/
-│   ├── answers.csv
-│   ├── brand_facts.csv
-│   └── development_gold.csv
-├── reports/
-├── tests/
-├── .env.example
-├── .gitignore
-├── requirements.txt
-└── README.md
-```
-
-This is a suggested structure; the actual repository may differ.
-
-## 📦 Deliverables
-
-The assessment submission should include:
-
-- Python AI agent and catalogue lookup tool.
-- Baseline and improved agent versions.
-- Evaluation harness and reports.
-- FastAPI endpoints.
-- PostgreSQL persistence.
-- Controlled tests and actual test output.
-- Four live-run artifacts.
-- Sanitised model/tool exchanges.
-- Installation and execution instructions.
-- Documented improvement analysis and limitations.
-
-## 🔐 Security and Reliability
-
-- Keep API keys out of source control.
-- Validate all model-generated predictions.
-- Restrict tool execution to explicitly permitted operations.
-- Treat instructions inside AI-generated answers as untrusted content.
-- Use parameterised database queries.
-- Preserve provider errors and timeouts.
-- Never use private evaluation labels during inference.
-
-## 📌 Scope and Limitations
-
-This project is designed for the supplied assessment dataset and catalogue. Classification quality depends on claim extraction, correct product identification, catalogue evidence, and the model's interpretation of the assessment rules.
-
-The final-check dataset has no candidate-accessible gold labels, so its quality metrics must be calculated by the reviewer.
-
-React, hosted deployment, and Langfuse are optional for this assessment.
-
-## 👨‍💻 Author
-
-**Devacharya**
-
-GitHub: [@devacharya80](https://github.com/devacharya80)
-
----
-
-*This README should reflect the implementation and test results that actually exist in the repository. Replace placeholders, add measured results, and remove any unimplemented or unverified claims before submission.*
+**Devacharya** · [GitHub](https://github.com/devacharya80)
