@@ -173,7 +173,7 @@ def run_tool_calling(
             for call in requested_calls:
                 arguments = _parse_tool_arguments(call.function.arguments)
                 if call.function.name != TOOL_NAME:
-                    raise InvalidToolArgumentsError("Only get_brand_facts is permitted.")
+                    raise InvalidToolArgumentsError("only get_brand_facts is permitted.")
                 result = execute_tool(call.function.name, arguments)
                 facts = result["facts"]
                 conversation.append({
