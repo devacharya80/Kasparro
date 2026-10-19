@@ -20,13 +20,11 @@ from app.db.session import engine, get_db
 from app.evaluation.loader import load_answers, load_gold_claims
 from app.evaluation.metrics import evaluate_claims
 
-
 app = FastAPI(
     title="Kasparro Assessment API",
     description="Evidence-grounded factual claim extraction and evaluation.",
     version="1.0.0",
 )
-
 AgentVersion = Literal["v1", "v2"]
 
 
@@ -72,9 +70,8 @@ def _provider_details() -> tuple[str, str]:
 
 
 def _classify(version: AgentVersion, *, answer_id: str, brand_id: str, answer_text: str):
-    return (classify_v1 if version == "v1" else classify_v2)(
-        answer_id=answer_id, brand_id=brand_id, answer_text=answer_text
-    )
+    classifier = classify_v1 if version == "v1" else classify_v2
+    return classifier(answer_id=answer_id, brand_id=brand_id, answer_text=answer_text)
 
 
 def _http_model_error(error: Exception) -> HTTPException:
@@ -119,95 +116,109 @@ def create_evaluation_run(
     request: EvaluationRunRequest,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    provider, model = _provider_details()
-    run = EvaluationRun(
-        dataset_split=request.split,
-        agent_version=request.agent_version,
-        provider=provider,
-        model=model,
-        dataset_version=DATASET_VERSION,
-        evaluator_version=EVALUATOR_VERSION,
-        source_revision=os.getenv("GIT_COMMIT_SHA"),
-        status="running",
-    )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-
-    answers = [
-        row for row in load_answers()
-        if str(row.get("split", "")).strip().lower() == request.split
-    ]
-    if not answers:
-        run.status = "failed"
-        run.error_summary = "The selected split contains no answers."
-        run.completed_at = datetime.now(timezone.utc)
-        db.commit()
-        raise HTTPException(status_code=422, detail=run.error_summary)
-
-    predictions: list[dict[str, Any]] = []
-    successful_answer_ids: set[str] = set()
-
-    for row in answers:
-        answer_id = str(row["answer_id"])
-        started = time.perf_counter()
-        answer_result = AnswerResult(
-            run_id=run.id,
-            answer_id=answer_id,
+    try:
+        provider, model = _provider_details()
+        run = EvaluationRun(
+            dataset_split=request.split,
+            agent_version=request.agent_version,
+            provider=provider,
+            model=model,
+            dataset_version=DATASET_VERSION,
+            evaluator_version=EVALUATOR_VERSION,
+            source_revision=os.getenv("GIT_COMMIT_SHA"),
             status="running",
         )
-        db.add(answer_result)
-        db.flush()
-        try:
-            prediction = _classify(
-                request.agent_version,
-                answer_id=answer_id,
-                brand_id=str(row["brand_id"]),
-                answer_text=str(row["ai_answer"]),
-            )
-            answer_result.status = "succeeded"
-            answer_result.latency_ms = int((time.perf_counter() - started) * 1000)
-            answer_result.prediction = prediction
-            successful_answer_ids.add(answer_id)
-            predictions.append(prediction)
-            for claim in prediction["claims"]:
-                db.add(
-                    ClaimResult(
-                        answer_result_id=answer_result.id,
-                        claim_id=claim["claim_id"],
-                        start_char=claim["start_char"],
-                        end_char=claim["end_char"],
-                        quote=claim["quote"],
-                        label=claim["label"],
-                        fact_ids=claim["fact_ids"],
-                        reason=claim["reason"],
-                    )
-                )
-        except Exception as error:
-            answer_result.status = "failed"
-            answer_result.latency_ms = int((time.perf_counter() - started) * 1000)
-            answer_result.error_summary = f"{type(error).__name__}: {str(error)[:500]}"
+        db.add(run)
         db.commit()
+        db.refresh(run)
+    except Exception as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Unable to initialise evaluation run or database.",
+        ) from error
 
-    run.status = (
-        "completed" if len(successful_answer_ids) == len(answers)
-        else "completed_with_errors"
-    )
-    run.completed_at = datetime.now(timezone.utc)
-
-    # The private check split is never evaluated against development gold.
-    if request.split == "development":
-        gold = load_gold_claims()
-        selected_ids = {str(row["answer_id"]) for row in answers}
-        selected_gold = [claim for claim in gold if str(claim["answer_id"]) in selected_ids]
-        predicted_claims = [
-            {**claim, "answer_id": prediction["answer_id"]}
-            for prediction in predictions for claim in prediction["claims"]
+    try:
+        answers = [
+            row for row in load_answers()
+            if str(row.get("split", "")).strip().lower() == request.split
         ]
-        run.metrics = evaluate_claims(selected_gold, predicted_claims)
+        if not answers:
+            run.status = "failed"
+            run.error_summary = "The selected split contains no answers."
+            run.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            raise HTTPException(status_code=422, detail=run.error_summary)
 
-    db.commit()
-    db.refresh(run)
+        predictions: list[dict[str, Any]] = []
+        successful_answer_ids: set[str] = set()
+        for row in answers:
+            answer_id = str(row["answer_id"])
+            started = time.perf_counter()
+            answer_result = AnswerResult(run_id=run.id, answer_id=answer_id, status="running")
+            db.add(answer_result)
+            db.flush()
+            try:
+                prediction = _classify(
+                    request.agent_version,
+                    answer_id=answer_id,
+                    brand_id=str(row["brand_id"]),
+                    answer_text=str(row["ai_answer"]),
+                )
+                answer_result.status = "succeeded"
+                answer_result.prediction = prediction
+                successful_answer_ids.add(answer_id)
+                predictions.append(prediction)
+                for claim in prediction["claims"]:
+                    db.add(
+                        ClaimResult(
+                            answer_result_id=answer_result.id,
+                            claim_id=claim["claim_id"],
+                            start_char=claim["start_char"],
+                            end_char=claim["end_char"],
+                            quote=claim["quote"],
+                            label=claim["label"],
+                            fact_ids=claim["fact_ids"],
+                            reason=claim["reason"],
+                        )
+                    )
+            except Exception as error:
+                answer_result.status = "failed"
+                answer_result.error_summary = f"{type(error).__name__}: {str(error)[:300]}"
+            finally:
+                answer_result.latency_ms = round((time.perf_counter() - started) * 1000)
+            db.commit()
+
+        run.status = (
+            "completed" if len(successful_answer_ids) == len(answers)
+            else "completed_with_errors"
+        )
+        run.completed_at = datetime.now(timezone.utc)
+        if request.split == "development":
+            gold = load_gold_claims()
+            answer_ids = {str(row["answer_id"]) for row in answers}
+            selected_gold = [claim for claim in gold if str(claim["answer_id"]) in answer_ids]
+            predicted_claims = [
+                {**claim, "answer_id": prediction["answer_id"]}
+                for prediction in predictions for claim in prediction["claims"]
+            ]
+            run.metrics = evaluate_claims(selected_gold, predicted_claims)
+        db.commit()
+        db.refresh(run)
+    except HTTPException:
+        raise
+    except Exception as error:
+        db.rollback()
+        try:
+            run.status = "failed"
+            run.error_summary = f"{type(error).__name__}: {str(error)[:300]}"
+            run.completed_at = datetime.now(timezone.utc)
+            db.add(run)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+        raise HTTPException(status_code=500, detail="Evaluation run failed.") from error
+
     return {
         "id": str(run.id),
         "split": run.dataset_split,
@@ -228,11 +239,12 @@ def get_evaluation_run(
         parsed_id = uuid.UUID(run_id)
     except (ValueError, TypeError) as error:
         raise HTTPException(status_code=422, detail="Invalid evaluation run UUID.") from error
-
-    run = db.scalar(select(EvaluationRun).where(EvaluationRun.id == parsed_id))
+    try:
+        run = db.scalar(select(EvaluationRun).where(EvaluationRun.id == parsed_id))
+    except SQLAlchemyError as error:
+        raise HTTPException(status_code=503, detail="Database unavailable.") from error
     if run is None:
         raise HTTPException(status_code=404, detail="Evaluation run not found.")
-
     answers = db.scalars(
         select(AnswerResult).where(AnswerResult.run_id == run.id)
     ).all()
