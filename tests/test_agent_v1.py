@@ -76,8 +76,7 @@ def test_rejects_claim_not_found_in_original_answer(mock_dependencies, monkeypat
 
 def test_rejects_invalid_json(mock_dependencies, monkeypatch):
     monkeypatch.setattr(
-        agent_v1,
-        "run_tool_calling",
+        agent_v1, "run_tool_calling",
         lambda messages, **kwargs: SimpleNamespace(final_text="not valid JSON"),
     )
     with pytest.raises(agent_v1.AgentOutputError, match="valid JSON"):
@@ -88,8 +87,7 @@ def test_rejects_invalid_json(mock_dependencies, monkeypatch):
 
 def test_rejects_unknown_fact_id(mock_dependencies, monkeypatch):
     monkeypatch.setattr(
-        agent_v1,
-        "run_tool_calling",
+        agent_v1, "run_tool_calling",
         lambda messages, **kwargs: SimpleNamespace(
             final_text=json.dumps({
                 "claims": [{
