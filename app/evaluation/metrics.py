@@ -98,14 +98,15 @@ def evaluate_claims(
     answer_ids_in_errors = sorted(error_ids)
     label_counts = Counter(claim_label(pred) for pred in accepted_predictions)
 
+    empty_split = scheduled_answer_ids is not None and len(scheduled_answer_ids) == 0
     return {
         "gold_claims": g,
         "predicted_claims": p,
         "exact_span_matches": m,
         "joint_correct_claims": c,
-        "extraction": _prf(m, p, g, empty_split=(scheduled_answer_ids is not None and len(scheduled_answer_ids) == 0)),
-        "joint": _prf(c, p, g, empty_split=(scheduled_answer_ids is not None and len(scheduled_answer_ids) == 0)),
-        "claim_coverage": _ratio(c, g),
+        "extraction": _prf(m, p, g, empty_split=empty_split),
+        "joint": _prf(c, p, g, empty_split=empty_split),
+        "claim_coverage": None if empty_split else _ratio(c, g),
         "missed_gold_claim_ids": missed_gold_ids,
         "unmatched_prediction_ids": unmatched_prediction_ids,
         "matched_wrong_label_ids": matched_wrong_labels,
